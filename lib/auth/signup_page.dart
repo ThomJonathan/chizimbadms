@@ -131,8 +131,9 @@ class _SignupPageState extends State<SignupPage> {
     }
 
     setState(() => _loading = true);
+
     try {
-      // Check if phone number already exists
+      // 1️⃣ Check if phone number already exists
       final existingUser = await supabase
           .from('users')
           .select('id')
@@ -141,79 +142,38 @@ class _SignupPageState extends State<SignupPage> {
 
       if (existingUser != null) {
         _snack('Phone number already registered', true);
-        setState(() => _loading = false);
         return;
       }
 
-      // Ensure station is free (double-check)
-      final selectedStation = _selectedStation!;
-      final station = await supabase
-          .from('polling_station')
-          .select('name, monitor')
-          .eq('name', selectedStation)
-          .maybeSingle();
-
-      if (station == null) {
-        _snack('Selected station not found', true);
-        setState(() => _loading = false);
-        return;
-      }
-      if (station['monitor'] != null) {
-        _snack('Station already assigned to a monitor. Choose a different one.', true);
-        setState(() => _loading = false);
-        return;
-      }
-
-      // Create user as monitor
+      // 2️⃣ Insert user directly into the database (bypass auth)
       final userResult = await supabase.from('users').insert({
         'fullname': _fullname.text.trim(),
         'phone': _phone.text.trim(),
-        'password': _password.text.trim(), // NOTE: In production, hash the password
+        'password': _password.text.trim(), // Remember to hash this in production!
         'role': 'monitor',
         'is_active': true,
-      }).select('id, role, fullname, phone').single();
+      }).select('id').single();
 
-      // Assign monitor to station - try RPC first, fallback to direct update
-      try {
-        bool assigned = false;
+      final userId = userResult['id'];
 
-        // Try using RPC function first
-        try {
-          final rpcResult = await supabase.rpc('assign_monitor_to_station', params: {
-            'station_name': selectedStation,
-            'monitor_phone': _phone.text.trim(),
-          });
-          assigned = rpcResult == true;
-        } catch (rpcError) {
-          print('RPC failed, trying direct update: $rpcError');
+      // 3️⃣ Assign monitor to polling station
+      final updatedRows = await supabase
+          .from('polling_station')
+          .update({'monitor': userId})
+          .eq('name', _selectedStation!)
+          .filter('monitor', 'is', null)
+          .select('name')
+          .maybeSingle();
 
-          // Fallback to direct update if RPC fails
-          final updateResult = await supabase
-              .from('polling_station')
-              .update({'monitor': _phone.text.trim()})
-              .eq('name', selectedStation)
-              .filter('monitor', 'is', null); // Only update if monitor is still NULL
+      final bool assigned = updatedRows != null;
 
-          // Check if any rows were updated
-          assigned = true; // Assume success if no error thrown
-        }
-
-        if (assigned) {
-          _snack('Signup successful! You can now log in.');
-          if (mounted) Navigator.of(context).pop();
-        } else {
-          // If assignment failed, delete the created user
-          await supabase.from('users').delete().eq('id', userResult['id']);
-          _snack('Failed to assign monitor to station. Station may have been taken by another user.', true);
-        }
-      } catch (assignError) {
-        // If assignment failed, delete the created user
-        try {
-          await supabase.from('users').delete().eq('id', userResult['id']);
-        } catch (deleteError) {
-          print('Error deleting user after failed assignment: $deleteError');
-        }
-        _snack('Error assigning monitor: ${assignError.toString()}', true);
+      if (assigned) {
+        _snack('Signup successful! You can now log in.');
+        if (mounted) Navigator.of(context).pop();
+      } else {
+        // 4️⃣ Rollback user if station assignment failed
+        await supabase.from('users').delete().eq('id', userId);
+        _snack('Station already assigned to another monitor. Please select a different station.', true);
       }
     } catch (e) {
       _snack('Signup error: $e', true);
