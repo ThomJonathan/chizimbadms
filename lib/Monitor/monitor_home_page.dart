@@ -1,351 +1,451 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:image_picker/image_picker.dart';
-import 'dart:io';
+import 'package:dotted_border/dotted_border.dart';
 import '../auth/login_page.dart';
 
 final supabase = Supabase.instance.client;
 
 class MonitorHomePage extends StatefulWidget {
   final Map<String, dynamic> user;
+
   const MonitorHomePage({super.key, required this.user});
 
   @override
   State<MonitorHomePage> createState() => _MonitorHomePageState();
 }
 
-class _MonitorHomePageState extends State<MonitorHomePage> {
-  Map<String, dynamic>? _station;
-  bool _loading = true;
-  bool _submitted = false;
-  bool _submitting = false;
-  File? _image;
-  final ImagePicker _picker = ImagePicker();
+class _MonitorHomePageState extends State<MonitorHomePage>
+    with TickerProviderStateMixin {
+  final _formKey = GlobalKey<FormState>();
+  final Map<String, TextEditingController> _totalVotesControllers = {};
 
-  // Controllers for vote inputs
-  final TextEditingController _candidate1Controller = TextEditingController();
-  final TextEditingController _candidate2Controller = TextEditingController();
-  final TextEditingController _candidate3Controller = TextEditingController();
+  List<Map<String, dynamic>> _candidates = [];
+  Map<String, dynamic>? _pollingStation;
+  bool _loading = false;
+  bool _hasRecordedResults = false;
+
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
-    _loadMyStation();
-  }
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
 
-  Future<void> _loadMyStation() async {
-    setState(() => _loading = true);
-    try {
-      final phone = widget.user['phone'] as String;
-      final rows = await supabase.rpc('get_monitor_station', params: {
-        'monitor_phone': phone,
-      });
-      if (rows is List && rows.isNotEmpty) {
-        _station = Map<String, dynamic>.from(rows.first);
-
-        // Check if results have already been submitted
-        if (_station!['total'] != null && _station!['total'] > 0) {
-          _submitted = true;
-        }
-
-        // Pre-populate the fields if data exists
-        _candidate1Controller.text = _station!['candidate1']?.toString() ?? '0';
-        _candidate2Controller.text = _station!['candidate2']?.toString() ?? '0';
-        _candidate3Controller.text = _station!['candidate3']?.toString() ?? '0';
-      }
-    } catch (_) {} finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _pickImage() async {
-    try {
-      final XFile? image = await _picker.pickImage(source: ImageSource.camera);
-      if (image != null) {
-        setState(() {
-          _image = File(image.path);
-        });
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error taking picture: $e')),
-      );
-    }
-  }
-
-  Future<void> _submitResults() async {
-    if (_image == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please take a picture of the results')),
-      );
-      return;
-    }
-
-    setState(() => _submitting = true);
-
-    try {
-      // Upload image first
-      final String fileName = '${_station!['station_name']}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      await supabase.storage
-          .from('results-pictures')
-          .upload(fileName, _image!);
-
-      // Get the public URL
-      final String imageUrl = supabase.storage
-          .from('results-pictures')
-          .getPublicUrl(fileName);
-
-      // Update the polling station with results
-      await supabase
-          .from('polling_station')
-          .update({
-        'candidate1': int.parse(_candidate1Controller.text),
-        'candidate2': int.parse(_candidate2Controller.text),
-        'candidate3': int.parse(_candidate3Controller.text),
-        'Pictureurl': imageUrl,
-        'updated_at': DateTime.now().toIso8601String(),
-      })
-          .eq('name', _station!['station_name']);
-
-      setState(() => _submitted = true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Results submitted successfully!')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error submitting results: $e')),
-      );
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
-  int get _totalVotes {
-    try {
-      return (int.tryParse(_candidate1Controller.text) ?? 0) +
-          (int.tryParse(_candidate2Controller.text) ?? 0) +
-          (int.tryParse(_candidate3Controller.text) ?? 0);
-    } catch (e) {
-      return 0;
-    }
+    _loadData();
+    _animationController.forward();
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Polling Station Monitor'),
-        backgroundColor: Colors.blue[700],
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(builder: (_) => const LoginPage()),
-                    (r) => false
-            ),
-            tooltip: 'Logout',
-          )
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _station == null
-          ? const Center(child: Text('No station assigned to you.'))
-          : Padding(
-        padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Column(
+  void dispose() {
+    _animationController.dispose();
+    for (var controller in _totalVotesControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _loading = true);
+
+    try {
+      // Load candidates
+      final candidatesResponse = await supabase
+          .from('candidate')
+          .select('*')
+          .order('id');
+
+      _candidates = List<Map<String, dynamic>>.from(candidatesResponse);
+
+      // Initialize controllers for each candidate
+      for (var candidate in _candidates) {
+        _totalVotesControllers[candidate['id'].toString()] = TextEditingController(text: '0');
+      }
+
+      // Load polling station assigned to this monitor
+      final pollingResponse = await supabase
+          .from('polling_station')
+          .select('*')
+          .eq('monitor', widget.user['id'])
+          .maybeSingle();
+
+      if (pollingResponse != null) {
+        _pollingStation = pollingResponse;
+
+        // Check if results have been recorded (any candidate has votes > 0)
+        _hasRecordedResults = (_pollingStation!['candidate1'] ?? 0) > 0 ||
+            (_pollingStation!['candidate2'] ?? 0) > 0 ||
+            (_pollingStation!['candidate3'] ?? 0) > 0;
+
+        if (_hasRecordedResults) {
+          // Populate the form with existing data
+          for (int i = 0; i < _candidates.length; i++) {
+            final candidateKey = 'candidate${i + 1}';
+            final candidateId = _candidates[i]['id'].toString();
+            _totalVotesControllers[candidateId]?.text =
+                _pollingStation![candidateKey]?.toString() ?? '0';
+          }
+        }
+      }
+
+    } catch (e) {
+      _showSnack('Error loading data: ${e.toString()}', true);
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _saveResults() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    // Show confirmation dialog
+    final bool? confirmed = await _showConfirmationDialog();
+    if (confirmed != true) return;
+
+    setState(() => _loading = true);
+
+    try {
+      // Calculate total from all candidates
+      int grandTotal = 0;
+      final Map<String, dynamic> resultsData = {};
+
+      for (int i = 0; i < _candidates.length; i++) {
+        final candidateKey = 'candidate${i + 1}';
+        final candidateId = _candidates[i]['id'].toString();
+        final totalVotes = int.tryParse(_totalVotesControllers[candidateId]?.text ?? '0') ?? 0;
+        resultsData[candidateKey] = totalVotes;
+        grandTotal += totalVotes;
+      }
+
+      resultsData['total'] = grandTotal;
+      resultsData['updated_at'] = DateTime.now().toIso8601String();
+
+      // Update polling station with results
+      await supabase
+          .from('polling_station')
+          .update(resultsData)
+          .eq('monitor', widget.user['id']);
+
+      _showSnack('Election results saved successfully!', false);
+      _loadData(); // Reload data to show saved results
+
+    } catch (e) {
+      _showSnack('Error saving results: ${e.toString()}', true);
+    } finally {
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<bool?> _showConfirmationDialog() async {
+    int totalAllCandidates = 0;
+    for (int i = 0; i < _candidates.length; i++) {
+      final candidateId = _candidates[i]['id'].toString();
+      totalAllCandidates += int.tryParse(_totalVotesControllers[candidateId]?.text ?? '0') ?? 0;
+    }
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(Icons.assignment_turned_in, color: Colors.orange, size: 28),
+              SizedBox(width: 12),
+              Text('Confirm Results'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Station Information Card
-              Card(
-                elevation: 3,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
+              Text('Please verify the total votes for each candidate:'),
+              SizedBox(height: 16),
+              for (int i = 0; i < _candidates.length; i++)
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _candidates[i]['fullname'],
+                          style: TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${_totalVotesControllers[_candidates[i]['id'].toString()]?.text ?? '0'} votes',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              SizedBox(height: 12),
+              Divider(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'TOTAL VOTES:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      '$totalAllCandidates',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Text(
+                  '⚠️ Warning: Once saved, these results cannot be modified. Please ensure all numbers are accurate.',
+                  style: TextStyle(
+                    color: Colors.red.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+              ),
+              child: Text('Save Results'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSnack(String message, [bool isError = false]) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              isError ? Icons.error_outline : Icons.check_circle_outline,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: isError ? Colors.red.shade600 : Colors.green.shade600,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: Duration(seconds: isError ? 4 : 2),
+      ),
+    );
+  }
+
+  String? _validateTotalVotes(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Please enter total votes';
+    }
+    final int? votes = int.tryParse(value.trim());
+    if (votes == null || votes < 0) {
+      return 'Please enter a valid number (0 or greater)';
+    }
+    return null;
+  }
+
+  Widget _buildResultsEntryForm() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.ballot, color: Theme.of(context).colorScheme.primary, size: 28),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Record Election Results',
+                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Enter the total votes each candidate received',
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+
+              SizedBox(height: 24),
+
+              // Total votes inputs for each candidate
+              for (int i = 0; i < _candidates.length; i++) ...[
+                Container(
+                  padding: EdgeInsets.all(16),
+                  margin: EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                    ),
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _station!['station_name'],
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 20,
+                            backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                            child: Text(
+                              '${i + 1}',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _candidates[i]['fullname'] ?? 'Unknown Candidate',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                Text(
+                                  _candidates[i]['party'] ?? 'Unknown Party',
+                                  style: TextStyle(
+                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Ward: ${_station!['ward_name']}',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey[600],
+                      SizedBox(height: 12),
+                      TextFormField(
+                        controller: _totalVotesControllers[_candidates[i]['id'].toString()],
+                        keyboardType: TextInputType.number,
+                        validator: _validateTotalVotes,
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        decoration: InputDecoration(
+                          labelText: 'Total Votes',
+                          hintText: 'Enter total votes for this candidate',
+                          prefixIcon: Icon(Icons.how_to_reg),
+                          suffixText: 'votes',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          filled: true,
+                          fillColor: Colors.white,
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Results Section
-              const Text(
-                'Record Votes',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Candidate Inputs
-              _buildCandidateInput(1, _candidate1Controller),
-              _buildCandidateInput(2, _candidate2Controller),
-              _buildCandidateInput(3, _candidate3Controller),
-
-              const SizedBox(height: 16),
-
-              // Total Votes
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Total Votes:',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    Text(
-                      _totalVotes.toString(),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Picture Section
-              const Text(
-                'Evidence Photo',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              const Text(
-                'Take a clear picture of the physical vote count sheet',
-                style: TextStyle(color: Colors.grey),
-              ),
-
-              const SizedBox(height: 16),
-
-              // Image Preview and Capture Button
-              _image == null
-                  ? Container(
-                height: 150,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  Icons.photo_camera,
-                  size: 50,
-                  color: Colors.grey[400],
-                ),
-              )
-                  : Container(
-                height: 150,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
-                  borderRadius: BorderRadius.circular(8),
-                  image: DecorationImage(
-                    image: FileImage(_image!),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              Center(
-                child: ElevatedButton.icon(
-                  onPressed: _submitted ? null : _pickImage,
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Take Picture'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Submit Button
-              SizedBox(
-                width: double.infinity,
-                child: _submitted
-                    ? ElevatedButton(
-                  onPressed: null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.check_circle, size: 20),
-                      SizedBox(width: 8),
-                      Text('Results Submitted Successfully'),
-                    ],
-                  ),
-                )
-                    : ElevatedButton(
-                  onPressed: _submitting ? null : _submitResults,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue[700],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: _submitting
-                      ? const SizedBox(
-                    height: 20,
-                    width: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                      : const Text('Submit Results'),
-                ),
-              ),
-
-              if (_submitted) ...[
-                const SizedBox(height: 16),
-                const Text(
-                  'Note: Results cannot be modified after submission.',
-                  style: TextStyle(
-                    color: Colors.red,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  textAlign: TextAlign.center,
                 ),
               ],
+
+              // Save button
+              SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _saveResults,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: _loading
+                      ? Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Text('Saving Results...'),
+                    ],
+                  )
+                      : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.save, size: 24),
+                      SizedBox(width: 8),
+                      Text(
+                          'Save Election Results',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -353,33 +453,302 @@ class _MonitorHomePageState extends State<MonitorHomePage> {
     );
   }
 
-  Widget _buildCandidateInput(int candidateNumber, TextEditingController controller) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: TextField(
-        controller: controller,
-        enabled: !_submitted,
-        decoration: InputDecoration(
-          labelText: 'Candidate $candidateNumber Votes',
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: _submitted ? null : () => controller.clear(),
-          ),
+  Widget _buildSavedResultsView() {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.verified, color: Colors.green, size: 32),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Results Recorded',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
+                      ),
+                      Text(
+                        'Election results have been saved successfully',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+
+            SizedBox(height: 16),
+
+            Container(
+              padding: EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade200),
+              ),
+              child: Text(
+                '✅ The election results have been recorded and locked. No further changes are allowed.',
+                style: TextStyle(
+                  color: Colors.green.shade700,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+
+            SizedBox(height: 24),
+
+            Text(
+              'Final Results Summary:',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 16),
+
+            // Display results for each candidate
+            for (int i = 0; i < _candidates.length; i++) ...[
+              Container(
+                padding: EdgeInsets.all(16),
+                margin: EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Theme.of(context).colorScheme.outline.withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                      child: Text(
+                        '${i + 1}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _candidates[i]['fullname'] ?? 'Unknown Candidate',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                          Text(
+                            _candidates[i]['party'] ?? 'Unknown Party',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        '${_pollingStation!['candidate${i + 1}'] ?? 0}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            SizedBox(height: 16),
+
+            // Total votes
+            Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                    Theme.of(context).colorScheme.primary.withOpacity(0.05),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Theme.of(context).colorScheme.primary.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'TOTAL VOTES CAST:',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Container(
+                    padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: Text(
+                      '${_pollingStation!['total'] ?? 0}',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
-        keyboardType: TextInputType.number,
-        onChanged: (value) {
-          setState(() {}); // Update the total
-        },
       ),
     );
   }
 
   @override
-  void dispose() {
-    _candidate1Controller.dispose();
-    _candidate2Controller.dispose();
-    _candidate3Controller.dispose();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Election Monitor Dashboard'),
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: () {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
+          ),
+        ],
+      ),
+      body: _loading && _candidates.isEmpty
+          ? Center(child: CircularProgressIndicator())
+          : SafeArea(
+        child: FadeTransition(
+          opacity: _fadeAnimation,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Welcome header
+                Card(
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 30,
+                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          child: Icon(Icons.person, color: Colors.white, size: 32),
+                        ),
+                        SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Monitor: ${widget.user['fullname'] ?? 'Unknown User'}',
+                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                _pollingStation != null
+                                    ? 'Assigned to: ${_pollingStation!['name'] ?? 'Unknown Station'}'
+                                    : 'No polling station assigned',
+                                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                                ),
+                              ),
+                              if (_pollingStation != null) ...[
+                                SizedBox(height: 4),
+                                Text(
+                                  'Ward: ${_pollingStation!['ward'] ?? 'Unknown Ward'}',
+                                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                SizedBox(height: 20),
+
+                // Main content
+                if (_pollingStation == null)
+                  Card(
+                    elevation: 2,
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Column(
+                        children: [
+                          Icon(Icons.info_outline, size: 64, color: Colors.orange),
+                          SizedBox(height: 16),
+                          Text(
+                            'No Polling Station Assigned',
+                            style: Theme.of(context).textTheme.headlineSmall,
+                            textAlign: TextAlign.center,
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            'Please contact the administrator to assign you to a polling station before you can record election results.',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else if (_hasRecordedResults)
+                  _buildSavedResultsView()
+                else
+                  _buildResultsEntryForm(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
