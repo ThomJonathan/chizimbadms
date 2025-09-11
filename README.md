@@ -19,14 +19,23 @@ Backend assumptions:
   - execute `assign_monitor_to_station` and `get_monitor_station` RPCs
 - `assign_monitor_to_station(station_name text, monitor_phone varchar)` returns boolean true on success (your SQL provided matches this).
 
+If you get "Failed to assign monitor to station" during signup, verify backend:
+- The function assign_monitor_to_station should either:
+  - be created with SECURITY DEFINER, and owner has privilege to UPDATE polling_station (RLS enabled), or
+  - you must add an UPDATE policy on polling_station that permits the function caller to set monitor when it is null. Example policy:
+    CREATE POLICY allow_assign_monitor ON polling_station
+    FOR UPDATE TO anon USING (true)
+    WITH CHECK (monitor IS NULL);
+- Also ensure a SELECT policy on users allows the function body to SELECT id by phone for active monitors.
+
 Security note:
 - Passwords are stored and compared as plain text per your schema. For production, switch to hashed passwords and use Supabase Auth or PostgreSQL `crypt()`.
 
 Files added/changed:
 - lib/auth/login_page.dart — LoginPage
 - lib/auth/signup_page.dart — SignupPage
-- lib/home/monitor_home_page.dart — MonitorHomePage
-- lib/home/admin_home_page.dart — AdminHomePage
+- lib/Monitor/monitor_home_page.dart — MonitorHomePage
+- lib/admin/admin_home_page.dart — AdminHomePage
 - lib/main.dart — imports auth/login_page.dart and sets `home: LoginPage()`
 
 Configure Supabase keys in main.dart as already present.
