@@ -145,38 +145,51 @@ class _SignupPageState extends State<SignupPage> {
         return;
       }
 
-      // 2️⃣ Insert user directly into the database (bypass auth)
+      // 2️⃣ Check if station is still available
+      final stationCheck = await supabase
+          .from('polling_station')
+          .select('monitor')
+          .eq('name', _selectedStation!)
+          .single();
+
+      if (stationCheck['monitor'] != null) {
+        _snack('Station already assigned to another monitor. Please select a different station.', true);
+        return;
+      }
+
+      // 3️⃣ Insert user directly into the database (plain text password)
       final userResult = await supabase.from('users').insert({
         'fullname': _fullname.text.trim(),
         'phone': _phone.text.trim(),
-        'password': _password.text.trim(), // Remember to hash this in production!
+        'password': _password.text.trim(), // Store password as plain text
         'role': 'monitor',
         'is_active': true,
+        'created_at': DateTime.now().toIso8601String(),
       }).select('id').single();
 
       final userId = userResult['id'];
 
-      // 3️⃣ Assign monitor to polling station
+      // 4️⃣ Assign monitor to polling station
       final updatedRows = await supabase
           .from('polling_station')
           .update({'monitor': userId})
           .eq('name', _selectedStation!)
           .filter('monitor', 'is', null)
-          .select('name')
-          .maybeSingle();
+          .select('name');
 
-      final bool assigned = updatedRows != null;
-
-      if (assigned) {
-        _snack('Signup successful! You can now log in.');
-        if (mounted) Navigator.of(context).pop();
-      } else {
-        // 4️⃣ Rollback user if station assignment failed
+      if (updatedRows.isEmpty) {
+        // 5️⃣ Rollback user if station assignment failed
         await supabase.from('users').delete().eq('id', userId);
         _snack('Station already assigned to another monitor. Please select a different station.', true);
+        return;
       }
+
+      _snack('Signup successful! You can now log in.');
+      if (mounted) Navigator.of(context).pop();
+
     } catch (e) {
-      _snack('Signup error: $e', true);
+      print('Signup error details: $e'); // For debugging
+      _snack('Signup error: ${e.toString()}', true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -209,9 +222,14 @@ class _SignupPageState extends State<SignupPage> {
     if (value == null || value.isEmpty) {
       return 'Enter phone number';
     }
-    // Basic phone validation - adjust as needed for your region
-    if (value.length < 10) {
+    // Remove any non-digit characters for validation
+    final digitsOnly = value.replaceAll(RegExp(r'[^\d]'), '');
+    if (digitsOnly.length < 10) {
       return 'Phone number must be at least 10 digits';
+    }
+    // Optional: Add specific format validation for your region
+    if (!RegExp(r'^[0-9+\-\s()]*$').hasMatch(value)) {
+      return 'Invalid phone number format';
     }
     return null;
   }
