@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../admin/admin_home_page.dart';
 import '../Monitor/monitor_home_page.dart';
+import 'sessionManager.dart'; // Updated import path
 import 'signup_page.dart';
 
 final supabase = Supabase.instance.client;
@@ -36,7 +37,30 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
       parent: _animationController,
       curve: Curves.easeInOut,
     ));
+
+    // Start the fade animation immediately
     _animationController.forward();
+  }
+
+  void _navigateToHome(Map<String, dynamic> user) {
+    if (!mounted) return;
+
+    if (user['role'] == 'admin') {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => AdminHomePage(user: user),
+        ),
+      );
+    } else if (user['role'] == 'monitor') {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => MonitorHomePage(user: user),
+        ),
+      );
+    } else {
+      // Handle unexpected role
+      _showSnack('Invalid user role: ${user['role']}', true);
+    }
   }
 
   @override
@@ -76,21 +100,30 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
 
       if (!mounted) return;
 
+      // Save user session using SessionManager
+      final sessionManager = SessionManager.instance;
+      await sessionManager.saveUserSession(
+        userId: user['id'].toString(),
+        fullName: user['fullname'] ?? '',
+        phone: user['phone'] ?? '',
+        role: user['role'] ?? '',
+      );
+
+      // Show success message
+      _showSnack('Login successful!', false);
+
+      // Small delay to show success message
+      await Future.delayed(const Duration(milliseconds: 500));
+
       // Navigate based on user role
-      if (user['role'] == 'admin') {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const AdminHomePage()),
-        );
-      } else if (user['role'] == 'monitor') {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => MonitorHomePage(user: user)),
-        );
-      } else {
-        _showSnack('Invalid user role', true);
-      }
-    } catch (e) {
       if (mounted) {
-        _showSnack('Login failed: ${e.toString()}', true);
+        _navigateToHome(user);
+      }
+
+    } catch (e) {
+      debugPrint('Login error: $e');
+      if (mounted) {
+        _showSnack('Login failed. Please try again.', true);
       }
     } finally {
       if (mounted) {
@@ -316,11 +349,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                   const Text('Signing In...'),
                                 ],
                               )
-                                  : Row(
+                                  : const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Icon(Icons.login, size: 20),
-                                  const SizedBox(width: 8),
+                                  SizedBox(width: 8),
                                   Text(
                                     'Sign In',
                                     style: TextStyle(
@@ -336,17 +369,12 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                           const SizedBox(height: 24),
 
                           // Divider
-                          Row(
+                          const Row(
                             children: [
                               Expanded(child: Divider()),
                               Padding(
                                 padding: EdgeInsets.symmetric(horizontal: 16),
-                                child: Text(
-                                  'OR',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurface.withOpacity(0.6),
-                                  ),
-                                ),
+                                child: Text('OR'),
                               ),
                               Expanded(child: Divider()),
                             ],
@@ -372,11 +400,11 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                            child: Row(
+                            child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Icon(Icons.person_add, size: 20),
-                                const SizedBox(width: 8),
+                                SizedBox(width: 8),
                                 Text(
                                   'Create Monitor Account',
                                   style: TextStyle(
