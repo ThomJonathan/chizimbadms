@@ -33,7 +33,7 @@ jobs:
           echo 'Section' >> installer.nsi
           echo '  SetOutPath $INSTDIR' >> installer.nsi
           echo '  File /r "build\windows\x64\runner\Release\*"' >> installer.nsi
-          echo '  CreateShortcut "$DESKTOP\MyFlutterApp.lnk" "$INSTDIR\your_app_name.exe"' >> installer.nsi
+          echo '  CreateShortcut "$DESKTOP\MyFlutterApp.lnk" "$INSTDIR\Chizimba Data management system.exe"' >> installer.nsi
           echo 'SectionEnd' >> installer.nsi
           makensis installer.nsi
 
@@ -41,4 +41,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: MyFlutterApp-Installer.exe
+          path: Chizimba Data management system.exe
