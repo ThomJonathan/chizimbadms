@@ -1,0 +1,26 @@
+name: Build Windows
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+      - name: Get dependencies
+        run: flutter pub get
+      - name: Build Windows app
+        run: flutter build windows
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-build
+          path: build/windows/runner/Release/
