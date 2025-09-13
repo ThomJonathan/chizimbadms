@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'monitors.dart';
 import 'ward.dart';
-import '../auth/sessionManager.dart'; // Add this import
+import '../auth/sessionManager.dart';
+
 final supabase = Supabase.instance.client;
 
 class AdminHomePage extends StatefulWidget {
-  final Map<String, dynamic> user; // Add user parameter
+  final Map<String, dynamic> user;
 
-  const AdminHomePage({super.key, required this.user}); // Update constructor
+  const AdminHomePage({super.key, required this.user});
 
   @override
   State<AdminHomePage> createState() => _AdminHomePageState();
@@ -36,7 +37,13 @@ class _AdminHomePageState extends State<AdminHomePage> {
           .select('*')
           .order('fullname', ascending: true);
 
-      // Load ward results
+      // Load polling station results (this is where the actual votes are)
+      final pollingStationsResponse = await supabase
+          .from('polling_station')
+          .select('*')
+          .order('ward', ascending: true);
+
+      // Load ward info for display purposes
       final wardsResponse = await supabase
           .from('ward')
           .select('*')
@@ -44,13 +51,72 @@ class _AdminHomePageState extends State<AdminHomePage> {
 
       setState(() {
         candidates = List<Map<String, dynamic>>.from(candidatesResponse);
-        wardResults = List<Map<String, dynamic>>.from(wardsResponse);
+
+        // Store polling stations data and calculate ward totals
+        final pollingStations = List<Map<String, dynamic>>.from(pollingStationsResponse);
+
+        // Calculate ward totals from polling station data
+        wardResults = _calculateWardTotals(wardsResponse, pollingStations);
+
         _loading = false;
       });
     } catch (e) {
       setState(() => _loading = false);
       _showSnack('Error loading data: ${e.toString()}', true);
     }
+  }
+
+  // Calculate ward totals from polling station data
+  List<Map<String, dynamic>> _calculateWardTotals(
+      List<dynamic> wards,
+      List<Map<String, dynamic>> pollingStations
+      ) {
+    return wards.map<Map<String, dynamic>>((ward) {
+      final wardName = ward['name'];
+
+      // Find all polling stations for this ward
+      final wardPollingStations = pollingStations
+          .where((station) => station['ward'] == wardName)
+          .toList();
+
+      // Calculate totals for this ward
+      int candidate1Total = 0;
+      int candidate2Total = 0;
+      int candidate3Total = 0;
+      int grandTotal = 0;
+
+      for (var station in wardPollingStations) {
+        candidate1Total += (station['candidate1'] as int? ?? 0);
+        candidate2Total += (station['candidate2'] as int? ?? 0);
+        candidate3Total += (station['candidate3'] as int? ?? 0);
+      }
+
+      grandTotal = candidate1Total + candidate2Total + candidate3Total;
+
+      return {
+        'name': wardName,
+        'candidate1': candidate1Total,
+        'candidate2': candidate2Total,
+        'candidate3': candidate3Total,
+        'total': grandTotal,
+        'polling_stations_count': wardPollingStations.length,
+        'recorded_stations': wardPollingStations
+            .where((station) => (station['total'] as int? ?? 0) > 0)
+            .length,
+      };
+    }).toList();
+  }
+
+  // Calculate candidate totals across all polling stations
+  int _getCandidateTotalVotes(int candidateIndex) {
+    int totalVotes = 0;
+
+    // Sum up votes from all wards for this candidate
+    for (var ward in wardResults) {
+      totalVotes += (ward['candidate$candidateIndex'] as int? ?? 0);
+    }
+
+    return totalVotes;
   }
 
   Future<void> _logout() async {
@@ -159,7 +225,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Welcome, ${widget.user['fullname']}!', // Display user's name
+                      'Welcome, ${widget.user['fullname']}!',
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: Theme.of(context).colorScheme.onPrimary,
                         fontWeight: FontWeight.bold,
@@ -224,12 +290,8 @@ class _AdminHomePageState extends State<AdminHomePage> {
     final theme = Theme.of(context);
 
     // Calculate total votes for this candidate across all wards
-    int totalVotes = 0;
     final candidateIndex = candidates.indexOf(candidate) + 1;
-
-    for (var ward in wardResults) {
-      totalVotes += (ward['candidate$candidateIndex'] as int? ?? 0);
-    }
+    final totalVotes = _getCandidateTotalVotes(candidateIndex);
 
     return Card(
       elevation: 3,
@@ -448,7 +510,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
   }
 
   Widget _buildWardsPage() {
-    return buildWardsPage(); // Just call this function!
+    return buildWardsPage();
   }
 
   Widget _buildMonitorsPage() {

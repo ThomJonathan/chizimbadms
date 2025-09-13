@@ -14,6 +14,7 @@ class _MonitorsPageState extends State<MonitorsPage> with SingleTickerProviderSt
   late TabController _tabController;
   List<Map<String, dynamic>> monitors = [];
   List<Map<String, dynamic>> pollingStations = [];
+  List<Map<String, dynamic>> candidates = [];
   bool _loading = true;
   String _searchQuery = '';
   String? _error;
@@ -71,6 +72,12 @@ class _MonitorsPageState extends State<MonitorsPage> with SingleTickerProviderSt
     try {
       print('Loading monitors data...'); // Debug log
 
+      // Load candidates
+      final candidatesResponse = await supabase
+          .from('candidate')
+          .select('*')
+          .order('id', ascending: true);
+
       // Load monitors with their roles
       final monitorsResponse = await supabase
           .from('users')
@@ -92,12 +99,13 @@ class _MonitorsPageState extends State<MonitorsPage> with SingleTickerProviderSt
       print('Stations response: $stationsResponse'); // Debug log
 
       setState(() {
+        candidates = List<Map<String, dynamic>>.from(candidatesResponse);
         monitors = List<Map<String, dynamic>>.from(monitorsResponse);
         pollingStations = List<Map<String, dynamic>>.from(stationsResponse);
         _loading = false;
       });
 
-      print('Loaded ${monitors.length} monitors and ${pollingStations.length} stations'); // Debug log
+      print('Loaded ${candidates.length} candidates, ${monitors.length} monitors and ${pollingStations.length} stations'); // Debug log
     } catch (e) {
       print('Error loading data: $e'); // Debug log
       setState(() {
@@ -986,9 +994,31 @@ class _MonitorsPageState extends State<MonitorsPage> with SingleTickerProviderSt
             const SizedBox(height: 16),
             const Text('Vote Counts:', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            _buildDetailRow('Candidate 1', '${station['candidate1'] ?? 0}'),
-            _buildDetailRow('Candidate 2', '${station['candidate2'] ?? 0}'),
-            _buildDetailRow('Candidate 3', '${station['candidate3'] ?? 0}'),
+            // Display actual candidate names
+            if (candidates.isNotEmpty) ...[
+              _buildDetailRow(
+                  candidates[0]['fullname'] ?? 'Candidate 1',
+                  '${station['candidate1'] ?? 0}'
+              ),
+            ],
+            if (candidates.length > 1) ...[
+              _buildDetailRow(
+                  candidates[1]['fullname'] ?? 'Candidate 2',
+                  '${station['candidate2'] ?? 0}'
+              ),
+            ],
+            if (candidates.length > 2) ...[
+              _buildDetailRow(
+                  candidates[2]['fullname'] ?? 'Candidate 3',
+                  '${station['candidate3'] ?? 0}'
+              ),
+            ],
+            // Fallback to generic names if no candidates loaded
+            if (candidates.isEmpty) ...[
+              _buildDetailRow('Candidate 1', '${station['candidate1'] ?? 0}'),
+              _buildDetailRow('Candidate 2', '${station['candidate2'] ?? 0}'),
+              _buildDetailRow('Candidate 3', '${station['candidate3'] ?? 0}'),
+            ],
             _buildDetailRow('Total Votes', '${station['total'] ?? 0}'),
             const SizedBox(height: 8),
             _buildDetailRow('Last Updated', _formatDateTime(station['updated_at'])),
