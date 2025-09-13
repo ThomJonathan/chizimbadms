@@ -16,9 +16,6 @@ jobs:
         with:
           channel: 'stable'
 
-      - name: Flutter doctor
-        run: flutter doctor -v
-
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
@@ -28,8 +25,20 @@ jobs:
       - name: Build Windows app
         run: flutter build windows --release
 
-      - name: Upload artifacts
+      - name: Create portable executable with NSIS
+        run: |
+          choco install nsis -y
+          echo 'OutFile "MyFlutterApp-Installer.exe"' > installer.nsi
+          echo 'InstallDir "$PROGRAMFILES\MyFlutterApp"' >> installer.nsi
+          echo 'Section' >> installer.nsi
+          echo '  SetOutPath $INSTDIR' >> installer.nsi
+          echo '  File /r "build\windows\x64\runner\Release\*"' >> installer.nsi
+          echo '  CreateShortcut "$DESKTOP\MyFlutterApp.lnk" "$INSTDIR\your_app_name.exe"' >> installer.nsi
+          echo 'SectionEnd' >> installer.nsi
+          makensis installer.nsi
+
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-build
-          path: build/windows/x64/runner/Release/
+          name: windows-installer
+          path: MyFlutterApp-Installer.exe
