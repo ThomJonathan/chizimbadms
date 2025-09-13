@@ -26,7 +26,11 @@ jobs:
         run: flutter build windows --release
 
       - name: List build output (for debugging)
-        run: dir "build\windows\x64\runner\Release" /B
+        run: |
+          echo "Listing Release folder contents:"
+          dir build\windows\x64\runner\Release
+          echo "Looking for .exe files:"
+          dir build\windows\x64\runner\Release\*.exe
 
       - name: Create portable executable with NSIS
         run: |
@@ -36,7 +40,6 @@ jobs:
           echo 'Section' >> installer.nsi
           echo '  SetOutPath $INSTDIR' >> installer.nsi
           echo '  File /r "build\windows\x64\runner\Release\*"' >> installer.nsi
-          echo '  CreateShortcut "$DESKTOP\Chizimba Data Management System.lnk" "$INSTDIR\chizimba_data_management_system.exe"' >> installer.nsi
           echo 'SectionEnd' >> installer.nsi
           makensis installer.nsi
 
