@@ -72,6 +72,10 @@ class _MonitorHomePageState extends State<MonitorHomePage>
       // Initialize controllers for each candidate
       for (var candidate in _candidates) {
         _totalVotesControllers[candidate['id'].toString()] = TextEditingController(text: '0');
+        // Add listener to update UI when text changes
+        _totalVotesControllers[candidate['id'].toString()]!.addListener(() {
+          setState(() {}); // Trigger rebuild to update total votes display
+        });
       }
 
       // Load polling station assigned to this monitor
@@ -109,6 +113,13 @@ class _MonitorHomePageState extends State<MonitorHomePage>
 
   Future<void> _saveResults() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // Validate total votes limit
+    final totalValidationError = _validateTotalVotesLimit();
+    if (totalValidationError != null) {
+      _showSnack(totalValidationError, true);
+      return;
+    }
 
     // Show confirmation dialog
     final bool? confirmed = await _showConfirmationDialog();
@@ -229,6 +240,12 @@ class _MonitorHomePageState extends State<MonitorHomePage>
     for (int i = 0; i < _candidates.length; i++) {
       final candidateId = _candidates[i]['id'].toString();
       totalAllCandidates += int.tryParse(_totalVotesControllers[candidateId]?.text ?? '0') ?? 0;
+    }
+
+    // Check if total exceeds 1000
+    if (totalAllCandidates > 1000) {
+      _showSnack('Total votes cannot exceed 1000. Current total: $totalAllCandidates', true);
+      return false;
     }
 
     return showDialog<bool>(
@@ -373,6 +390,26 @@ class _MonitorHomePageState extends State<MonitorHomePage>
     return null;
   }
 
+  // Method to calculate total votes from all candidates
+  int _calculateTotalVotes() {
+    int total = 0;
+    for (var candidate in _candidates) {
+      final candidateId = candidate['id'].toString();
+      final votes = int.tryParse(_totalVotesControllers[candidateId]?.text ?? '0') ?? 0;
+      total += votes;
+    }
+    return total;
+  }
+
+  // Method to validate if total votes exceed 1000
+  String? _validateTotalVotesLimit() {
+    final total = _calculateTotalVotes();
+    if (total > 1000) {
+      return 'Total votes cannot exceed 1000. Current total: $total';
+    }
+    return null;
+  }
+
   Widget _buildResultsEntryForm() {
     return Card(
       elevation: 4,
@@ -485,11 +522,85 @@ class _MonitorHomePageState extends State<MonitorHomePage>
                 ),
               ],
 
+              // Total votes display and validation
+              SizedBox(height: 16),
+              Container(
+                padding: EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _validateTotalVotesLimit() != null 
+                        ? Colors.red.withOpacity(0.5)
+                        : Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'TOTAL VOTES:',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _validateTotalVotesLimit() != null 
+                                ? Colors.red
+                                : Theme.of(context).colorScheme.primary,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            '${_calculateTotalVotes()}',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_validateTotalVotesLimit() != null) ...[
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(Icons.error_outline, color: Colors.red, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _validateTotalVotesLimit()!,
+                              style: TextStyle(
+                                color: Colors.red,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    SizedBox(height: 8),
+                    Text(
+                      'Maximum allowed: 1000 votes',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
               // Save button
               SizedBox(
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _loading ? null : _saveResults,
+                  onPressed: (_loading || _validateTotalVotesLimit() != null) ? null : _saveResults,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Colors.white,
