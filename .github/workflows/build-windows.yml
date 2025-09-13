@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+        uses: subosito/flutter-action@v4
         with:
           channel: 'stable'
 
@@ -25,20 +25,23 @@ jobs:
       - name: Build Windows app
         run: flutter build windows --release
 
+      - name: List build output (for debugging)
+        run: dir "build\windows\x64\runner\Release" /B
+
       - name: Create portable executable with NSIS
         run: |
           choco install nsis -y
-          echo 'OutFile "Chizimba-Data-management-system.exe"' > installer.nsi
-          echo 'InstallDir "$PROGRAMFILES\Chizimba-Data-management-system"' >> installer.nsi
+          echo 'OutFile "ChizimbaDataManagementSystem-Installer.exe"' > installer.nsi
+          echo 'InstallDir "$PROGRAMFILES64\ChizimbaDataManagementSystem"' >> installer.nsi
           echo 'Section' >> installer.nsi
           echo '  SetOutPath $INSTDIR' >> installer.nsi
           echo '  File /r "build\windows\x64\runner\Release\*"' >> installer.nsi
-          echo '  CreateShortcut "$DESKTOP\MyFlutterApp.lnk" "$INSTDIR\Chizimba Data management system.exe"' >> installer.nsi
+          echo '  CreateShortcut "$DESKTOP\Chizimba Data Management System.lnk" "$INSTDIR\chizimba_data_management_system.exe"' >> installer.nsi
           echo 'SectionEnd' >> installer.nsi
           makensis installer.nsi
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: Chizimba-Data-management-system-installer
-          path: Chizimba Data management system.exe
+          name: chizimba-installer
+          path: ChizimbaDataManagementSystem-Installer.exe
