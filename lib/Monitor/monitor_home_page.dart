@@ -138,8 +138,10 @@ class _MonitorHomePageState extends State<MonitorHomePage>
 
       resultsData['total'] = grandTotal;
       resultsData['updated_at'] = DateTime.now().toIso8601String();
+      resultsData['RecordedBy'] = 'monitor'; // Add this line to set who recorded the results
 
       print('Total votes: $grandTotal');
+      print('Recorded by: monitor');
 
       // Update polling station with results
       final response = await supabase
