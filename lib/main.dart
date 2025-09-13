@@ -68,6 +68,18 @@ class _AppInitializerState extends State<AppInitializer> {
     _checkSession();
   }
 
+  // Add this to test basic connectivity
+  void testSupabaseConnection() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('your_table_name')
+          .select('*')
+          .limit(1);
+      print('Connection successful: $response');
+    } catch (error) {
+      print('Connection error: $error');
+    }
+  }
   Future<void> _checkSession() async {
     try {
       final sessionManager = SessionManager.instance;

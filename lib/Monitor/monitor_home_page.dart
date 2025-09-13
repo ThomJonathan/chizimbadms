@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:dotted_border/dotted_border.dart';
 import '../auth/login_page.dart';
-import '../auth/sessionManager.dart'; // Import SessionManager
 
 final supabase = Supabase.instance.client;
 
@@ -24,7 +23,6 @@ class _MonitorHomePageState extends State<MonitorHomePage>
   Map<String, dynamic>? _pollingStation;
   bool _loading = false;
   bool _hasRecordedResults = false;
-  bool _loggingOut = false; // Add loading state for logout
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -65,7 +63,7 @@ class _MonitorHomePageState extends State<MonitorHomePage>
       final candidatesResponse = await supabase
           .from('candidate')
           .select('*')
-          .order('id'); // Make sure this sorts consistently
+          .order('id');
 
       _candidates = List<Map<String, dynamic>>.from(candidatesResponse);
 
@@ -121,104 +119,30 @@ class _MonitorHomePageState extends State<MonitorHomePage>
       int grandTotal = 0;
       final Map<String, dynamic> resultsData = {};
 
-      // Debug output
-      print('Saving results for polling station: ${_pollingStation!['name']}');
-
       for (int i = 0; i < _candidates.length; i++) {
         final candidateKey = 'candidate${i + 1}';
         final candidateId = _candidates[i]['id'].toString();
         final totalVotes = int.tryParse(_totalVotesControllers[candidateId]?.text ?? '0') ?? 0;
-
         resultsData[candidateKey] = totalVotes;
         grandTotal += totalVotes;
-
-        // Debug output
-        print('Candidate ${i+1} (${_candidates[i]['fullname']}): $totalVotes votes');
       }
 
       resultsData['total'] = grandTotal;
       resultsData['updated_at'] = DateTime.now().toIso8601String();
 
-      print('Total votes: $grandTotal');
-
       // Update polling station with results
-      final response = await supabase
+      await supabase
           .from('polling_station')
           .update(resultsData)
           .eq('monitor', widget.user['id']);
-
-      print('Update response: $response');
 
       _showSnack('Election results saved successfully!', false);
       _loadData(); // Reload data to show saved results
 
     } catch (e) {
-      print('Error saving results: $e');
       _showSnack('Error saving results: ${e.toString()}', true);
     } finally {
       setState(() => _loading = false);
-    }
-  }
-  // Updated logout method to use SessionManager
-  Future<void> _handleLogout() async {
-    setState(() => _loggingOut = true);
-
-    try {
-      final sessionManager = SessionManager.instance;
-      await sessionManager.logout();
-
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginPage()),
-              (route) => false,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _showSnack('Error logging out: ${e.toString()}', true);
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _loggingOut = false);
-      }
-    }
-  }
-
-  // Updated logout confirmation dialog
-  Future<void> _showLogoutDialog() async {
-    final bool? shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Icon(Icons.logout, color: Colors.orange, size: 28),
-              SizedBox(width: 12),
-              Text('Confirm Logout'),
-            ],
-          ),
-          content: Text('Are you sure you want to logout?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-              child: Text('Logout'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldLogout == true) {
-      await _handleLogout();
     }
   }
 
@@ -718,18 +642,14 @@ class _MonitorHomePageState extends State<MonitorHomePage>
         elevation: 0,
         actions: [
           IconButton(
-            icon: _loggingOut
-                ? SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            )
-                : Icon(Icons.logout),
+            icon: Icon(Icons.logout),
             tooltip: 'Logout',
-            onPressed: _loggingOut ? null : _showLogoutDialog,
+            onPressed: () {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginPage()),
+                (route) => false,
+              );
+            },
           ),
         ],
       ),

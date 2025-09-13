@@ -296,7 +296,7 @@ class _SignupPageState extends State<SignupPage> {
                   labelText: 'Phone Number',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.phone),
-                  hintText: 'e.g., 0712345678',
+                  hintText: 'e.g., 0888099900',
                 ),
                 validator: _validatePhone,
               ),

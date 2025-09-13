@@ -36,15 +36,49 @@ class _AdminHomePageState extends State<AdminHomePage> {
           .select('*')
           .order('fullname', ascending: true);
 
-      // Load ward results
+      // Load ward results by aggregating polling station data
       final wardsResponse = await supabase
           .from('ward')
-          .select('*')
+          .select('name')
           .order('name', ascending: true);
+
+      // Calculate results for each ward by summing polling station data
+      List<Map<String, dynamic>> wardResultsWithTotals = [];
+
+      for (var ward in wardsResponse) {
+        final wardName = ward['name'] as String;
+
+        // Get all polling stations for this ward
+        final pollingStations = await supabase
+            .from('polling_station')
+            .select('candidate1, candidate2, candidate3, total')
+            .eq('ward', wardName);
+
+        // Calculate totals for this ward
+        int candidate1Total = 0;
+        int candidate2Total = 0;
+        int candidate3Total = 0;
+        int wardTotal = 0;
+
+        for (var station in pollingStations) {
+          candidate1Total += (station['candidate1'] as int? ?? 0);
+          candidate2Total += (station['candidate2'] as int? ?? 0);
+          candidate3Total += (station['candidate3'] as int? ?? 0);
+          wardTotal += (station['total'] as int? ?? 0);
+        }
+
+        wardResultsWithTotals.add({
+          'name': wardName,
+          'candidate1': candidate1Total,
+          'candidate2': candidate2Total,
+          'candidate3': candidate3Total,
+          'total': wardTotal
+        });
+      }
 
       setState(() {
         candidates = List<Map<String, dynamic>>.from(candidatesResponse);
-        wardResults = List<Map<String, dynamic>>.from(wardsResponse);
+        wardResults = wardResultsWithTotals;
         _loading = false;
       });
     } catch (e) {
@@ -159,7 +193,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Welcome, ${widget.user['fullname']}!', // Display user's name
+                      'Welcome MR ${widget.user['fullname']}!', // Display user's name
                       style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         color: Theme.of(context).colorScheme.onPrimary,
                         fontWeight: FontWeight.bold,
