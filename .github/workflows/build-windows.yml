@@ -28,8 +28,8 @@ jobs:
       - name: Create portable executable with NSIS
         run: |
           choco install nsis -y
-          echo 'OutFile "MyFlutterApp-Installer.exe"' > installer.nsi
-          echo 'InstallDir "$PROGRAMFILES\MyFlutterApp"' >> installer.nsi
+          echo 'OutFile "Chizimba-Data-management-system.exe"' > installer.nsi
+          echo 'InstallDir "$PROGRAMFILES\Chizimba-Data-management-system"' >> installer.nsi
           echo 'Section' >> installer.nsi
           echo '  SetOutPath $INSTDIR' >> installer.nsi
           echo '  File /r "build\windows\x64\runner\Release\*"' >> installer.nsi
@@ -40,5 +40,5 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
+          name: Chizimba-Data-management-system-installer
           path: Chizimba Data management system.exe
