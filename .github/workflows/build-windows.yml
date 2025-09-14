@@ -67,6 +67,7 @@ jobs:
             SetOutPath '$INSTDIR'
             File /r 'build\windows\x64\runner\Release\*'
 
+            ; Use absolute paths for CreateDirectory
             CreateDirectory '$SMPROGRAMS\ChizimbaDataManagementSystem'
             CreateShortcut '$SMPROGRAMS\ChizimbaDataManagementSystem\Chizimba.lnk' '$INSTDIR\$exeName'
             CreateShortcut '$SMPROGRAMS\ChizimbaDataManagementSystem\Uninstall.lnk' '$INSTDIR\Uninstall.exe'
@@ -119,8 +120,10 @@ jobs:
 
       - name: Install NSIS and create installer
         run: |
-          choco install nsis -y
-          makensis installer.nsi
+          # Force install NSIS to ensure it's available
+          choco install nsis -y --force
+          # Run makensis with verbose output to help debug
+          makensis -V4 installer.nsi
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
