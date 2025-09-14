@@ -1,35 +1,36 @@
-name: Build Windows
+name: Build Windows EXE
+
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch: # allow manual trigger
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Flutter
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          flutter-version: '3.24.0' # or your Flutter version
 
-      - name: Flutter doctor
-        run: flutter doctor -v
-
-      - name: Enable Windows desktop
+      - name: Enable Windows Desktop
         run: flutter config --enable-windows-desktop
 
-      - name: Get dependencies
+      - name: Install dependencies
         run: flutter pub get
 
-      - name: Build Windows app
+      - name: Build Windows
         run: flutter build windows --release
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload EXE as artifact
+        uses: actions/upload-artifact@v3
         with:
           name: windows-build
-          path: build/windows/x64/runner/Release/
+          path: build/windows/runner/Release/
