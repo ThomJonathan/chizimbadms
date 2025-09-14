@@ -84,7 +84,7 @@ jobs:
           
             ; Create shortcuts
             CreateDirectory "$SMPROGRAMS\ChizimbaDataManagementSystem"
-            CreateShortcut "$SMPROGRAMS\ChizimbaDataManagementSystem\Chizimba.lnk" "$INSTDIR\chizimba_data_management_system.exe"
+            CreateShortcut "$SMPROGRAMS\ChizimbaDataManagementSystem\Chizimba.lnk" "$INSTDIR\chizimba.exe"
             CreateShortcut "$SMPROGRAMS\ChizimbaDataManagementSystem\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
             CreateShortcut "$DESKTOP\Chizimba Data Management System.lnk" "$INSTDIR\chizimba_data_management_system.exe"
           
