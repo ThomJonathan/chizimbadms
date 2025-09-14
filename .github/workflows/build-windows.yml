@@ -16,6 +16,9 @@ jobs:
         with:
           channel: 'stable'
 
+      - name: Flutter doctor
+        run: flutter doctor -v
+
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
@@ -25,108 +28,8 @@ jobs:
       - name: Build Windows app
         run: flutter build windows --release
 
-      - name: List build output (for debugging)
-        run: |
-          echo "Listing Release folder contents:"
-          dir build\windows\x64\runner\Release
-          echo "Looking for .exe files:"
-          dir build\windows\x64\runner\Release\*.exe
-
-      - name: Detect Windows .exe
-        id: detect_exe
-        run: |
-          $exe = Get-ChildItem build\windows\x64\runner\Release\*.exe | Select-Object -First 1
-          Write-Host "EXE_NAME=$($exe.Name)" >> $GITHUB_ENV
-          echo "Detected executable: $($exe.Name)"
-
-      - name: Create NSIS installer script
-        run: |
-          $exeName = "${{ env.EXE_NAME }}"
-          $nsisScript = @"
-          !include 'MUI2.nsh'
-
-          Name 'Chizimba Data Management System'
-          OutFile 'ChizimbaDataManagementSystem-Installer.exe'
-          InstallDir '$PROGRAMFILES64\ChizimbaDataManagementSystem'
-          RequestExecutionLevel admin
-
-          !define MUI_ABORTWARNING
-          !insertmacro MUI_PAGE_DIRECTORY
-          !insertmacro MUI_PAGE_INSTFILES
-
-          ; Optional launch page
-          Page custom LaunchAppPageCreate LaunchAppPageLeave
-
-          !insertmacro MUI_UNPAGE_CONFIRM
-          !insertmacro MUI_UNPAGE_INSTFILES
-          !insertmacro MUI_LANGUAGE 'English'
-
-          Var LaunchAppChecked
-
-          Section 'Main Application' SecMain
-            SetOutPath '$INSTDIR'
-            File /r 'build\windows\x64\runner\Release\*'
-
-            ; Use absolute paths for CreateDirectory
-            CreateDirectory '$SMPROGRAMS\ChizimbaDataManagementSystem'
-            CreateShortcut '$SMPROGRAMS\ChizimbaDataManagementSystem\Chizimba.lnk' '$INSTDIR\$exeName'
-            CreateShortcut '$SMPROGRAMS\ChizimbaDataManagementSystem\Uninstall.lnk' '$INSTDIR\Uninstall.exe'
-            CreateShortcut '$DESKTOP\Chizimba Data Management System.lnk' '$INSTDIR\$exeName'
-
-            WriteRegStr HKCU 'Software\ChizimbaDataManagementSystem' '' $INSTDIR
-            WriteUninstaller '$INSTDIR\Uninstall.exe'
-
-            WriteRegStr HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem' 'DisplayName' 'Chizimba Data Management System'
-            WriteRegStr HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem' 'UninstallString' '$\"$INSTDIR\Uninstall.exe$\"'
-            WriteRegStr HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem' 'DisplayIcon' '$\"$INSTDIR\$exeName$\"'
-            WriteRegStr HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem' 'Publisher' 'Jaytechsolutions'
-            WriteRegDWORD HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem' 'NoModify' 1
-            WriteRegDWORD HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem' 'NoRepair' 1
-          SectionEnd
-
-          Section 'Uninstall'
-            RMDir /r '$INSTDIR'
-            Delete '$SMPROGRAMS\ChizimbaDataManagementSystem\Chizimba.lnk'
-            Delete '$SMPROGRAMS\ChizimbaDataManagementSystem\Uninstall.lnk'
-            Delete '$DESKTOP\Chizimba Data Management System.lnk'
-            RMDir '$SMPROGRAMS\ChizimbaDataManagementSystem'
-            DeleteRegKey HKCU 'Software\ChizimbaDataManagementSystem'
-            DeleteRegKey HKLM 'Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem'
-          SectionEnd
-
-          ;----------------------------------
-          ; Custom page: Ask user if they want to launch the app
-          Function LaunchAppPageCreate
-            !insertmacro MUI_HEADER_TEXT "Launch Application" "Do you want to launch Chizimba Data Management System now?"
-            nsDialogs::Create 1018
-            Pop $0
-            ${If} $0 == error
-              Abort
-            ${EndIf}
-
-            ${NSD_CreateCheckbox} 10u 40u 100% 12u "Launch application after installation"
-            Pop $LaunchAppChecked
-            nsDialogs::Show
-          FunctionEnd
-
-          Function LaunchAppPageLeave
-            ${NSD_GetState} $LaunchAppChecked $0
-            StrCmp $0 1 0 +2
-              Exec '$INSTDIR\$exeName'
-          FunctionEnd
-          "@
-
-          $nsisScript | Out-File -Encoding UTF8 -FilePath 'installer.nsi'
-
-      - name: Install NSIS and create installer
-        run: |
-          # Force install NSIS to ensure it's available
-          choco install nsis -y --force
-          # Run makensis with verbose output to help debug
-          makensis -V4 installer.nsi
-
-      - name: Upload installer
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chizimba-installer
-          path: ChizimbaDataManagementSystem-Installer.exe
+          name: windows-build
+          path: build/windows/x64/runner/Release/
