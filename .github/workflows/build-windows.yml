@@ -32,11 +32,9 @@ jobs:
           echo "Looking for .exe files:"
           dir build\windows\x64\runner\Release\*.exe
 
-      - name: Create installer with NSIS
+      - name: Create NSIS installer script
         run: |
-          choco install nsis -y
-          # Create a proper NSIS installer script
-          @"
+          $nsisScript = @'
           ; Set compression
           SetCompressor /SOLID lzma
           
@@ -91,18 +89,12 @@ jobs:
             CreateShortcut "$DESKTOP\Chizimba Data Management System.lnk" "$INSTDIR\chizimba_data_management_system.exe"
           
             ; Add registry entries for uninstaller
-            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" \
-                             "DisplayName" "Chizimba Data Management System"
-            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" \
-                             "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
-            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" \
-                             "DisplayIcon" "$\"$INSTDIR\chizimba_data_management_system.exe$\""
-            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" \
-                             "Publisher" "Jaytechsolutions"
-            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" \
-                             "NoModify" 1
-            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" \
-                             "NoRepair" 1
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" "DisplayName" "Chizimba Data Management System"
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" "UninstallString" "$\"$INSTDIR\Uninstall.exe$\""
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" "DisplayIcon" "$\"$INSTDIR\chizimba_data_management_system.exe$\""
+            WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" "Publisher" "Jaytechsolutions"
+            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" "NoModify" 1
+            WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem" "NoRepair" 1
           SectionEnd
           
           ; Uninstaller section
@@ -120,8 +112,13 @@ jobs:
             DeleteRegKey HKCU "Software\ChizimbaDataManagementSystem"
             DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\ChizimbaDataManagementSystem"
           SectionEnd
-          "@ | Out-File -Encoding UTF8 installer.nsi
+          '@
           
+          $nsisScript | Out-File -Encoding UTF8 -FilePath "installer.nsi"
+
+      - name: Install NSIS and create installer
+        run: |
+          choco install nsis -y
           makensis installer.nsi
 
       - name: Upload installer
