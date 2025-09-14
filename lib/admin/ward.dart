@@ -18,16 +18,40 @@ class _WardPageWidget extends StatefulWidget {
 class _WardPageWidgetState extends State<_WardPageWidget> {
   List<Map<String, dynamic>> wardPollingStations = [];
   bool _loading = true;
+  List<Map<String, dynamic>> _candidates = [];
 
   @override
   void initState() {
     super.initState();
-    _loadWardData();
+    _loadData();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _loading = true);
+
+    try {
+      await Future.wait([
+        _loadCandidates(),
+        _loadWardData(),
+      ]);
+    } catch (e) {
+      setState(() => _loading = false);
+      _showSnack('Error loading data: ${e.toString()}', true);
+    }
+  }
+
+  Future<void> _loadCandidates() async {
+    final response = await supabase
+        .from('candidate')
+        .select('*')
+        .order('id', ascending: true);
+
+    setState(() {
+      _candidates = List<Map<String, dynamic>>.from(response);
+    });
   }
 
   Future<void> _loadWardData() async {
-    setState(() => _loading = true);
-
     try {
       // Load wards with their polling stations and monitor details
       final wardsResponse = await supabase
@@ -50,6 +74,7 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
               candidate2, 
               candidate3, 
               total,
+              "RecordedBy",
               users!fk_polling_station_monitor(
                 fullname
               )
@@ -67,6 +92,7 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
             'candidate2': station['candidate2'],
             'candidate3': station['candidate3'],
             'total': station['total'],
+            'recordedBy': station['RecordedBy'],
           };
 
           // Add monitor name if available
@@ -113,6 +139,184 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
+    );
+  }
+
+  void _showPollingStationDetails(Map<String, dynamic> station, List<Map<String, dynamic>> candidates) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.how_to_vote, color: Theme.of(context).colorScheme.primary),
+              SizedBox(width: 8),
+              Text(
+                station['name'],
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Recorded by information
+                if (station['recordedBy'] != null)
+                  Container(
+                    padding: EdgeInsets.all(8),
+                    margin: EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: station['recordedBy'] == 'admin'
+                          ? Colors.blue.withOpacity(0.1)
+                          : Colors.green.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: station['recordedBy'] == 'admin'
+                            ? Colors.blue.withOpacity(0.3)
+                            : Colors.green.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          station['recordedBy'] == 'admin'
+                              ? Icons.admin_panel_settings
+                              : Icons.person,
+                          size: 16,
+                          color: station['recordedBy'] == 'admin'
+                              ? Colors.blue
+                              : Colors.green,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Recorded by: ${station['recordedBy'] == 'admin' ? 'Admin' : 'Monitor'}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: station['recordedBy'] == 'admin'
+                                ? Colors.blue
+                                : Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Monitor information
+                if (station['monitor_name'] != null)
+                  Padding(
+                    padding: EdgeInsets.only(bottom: 16),
+                    child: Row(
+                      children: [
+                        Icon(Icons.person, size: 16, color: Colors.grey),
+                        SizedBox(width: 8),
+                        Text(
+                          'Monitor: ${station['monitor_name']}',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                // Candidate votes
+                Text(
+                  'Candidate Votes:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
+                ),
+                SizedBox(height: 12),
+                ...List.generate(candidates.length, (index) {
+                  final candidate = candidates[index];
+                  final candidateKey = 'candidate${index + 1}';
+                  final votes = station[candidateKey] as int? ?? 0;
+
+                  return Container(
+                    margin: EdgeInsets.only(bottom: 8),
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+                          child: Text(
+                            '${index + 1}',
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                candidate['fullname'] ?? 'Unknown Candidate',
+                                style: TextStyle(fontWeight: FontWeight.w500),
+                              ),
+                              Text(
+                                candidate['party'] ?? 'Unknown Party',
+                                style: TextStyle(
+                                  color: Colors.grey,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          '$votes votes',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+
+                SizedBox(height: 16),
+                Divider(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'TOTAL VOTES:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      '${station['total'] ?? 0}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -419,7 +623,12 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
                 ),
                 const SizedBox(height: 12),
 
-                ...pollingStations.map((station) => _buildPollingStationRow(station)).toList(),
+                ...pollingStations.map((station) =>
+                    GestureDetector(
+                      onTap: () => _showPollingStationDetails(station, _candidates),
+                      child: _buildPollingStationRow(station),
+                    )
+                ).toList(),
               ],
             ),
           ],
@@ -458,6 +667,7 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
     final monitorName = station['monitor_name'] as String? ??
         (monitorId != null ? 'Monitor Assigned' : 'No Monitor');
     final isRecorded = totalVotes > 0;
+    final recordedBy = station['recordedBy'] as String?;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -476,11 +686,33 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
       ),
       child: Row(
         children: [
-          // Status Icon
-          Icon(
-            isRecorded ? Icons.check_circle : Icons.pending,
-            color: isRecorded ? Colors.green : Colors.orange,
-            size: 20,
+          // Status Icon with recorded by indicator
+          Stack(
+            children: [
+              Icon(
+                isRecorded ? Icons.check_circle : Icons.pending,
+                color: isRecorded ? Colors.green : Colors.orange,
+                size: 24,
+              ),
+              if (recordedBy != null && isRecorded)
+                Positioned(
+                  right: 0,
+                  bottom: 0,
+                  child: Container(
+                    padding: EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: recordedBy == 'admin' ? Colors.blue : Colors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1),
+                    ),
+                    child: Icon(
+                      recordedBy == 'admin' ? Icons.admin_panel_settings : Icons.person,
+                      size: 10,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(width: 12),
 
@@ -517,6 +749,17 @@ class _WardPageWidgetState extends State<_WardPageWidget> {
                     ),
                   ],
                 ),
+                if (recordedBy != null && isRecorded)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      'Recorded by: ${recordedBy == 'admin' ? 'Admin' : 'Monitor'}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: recordedBy == 'admin' ? Colors.blue : Colors.green,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

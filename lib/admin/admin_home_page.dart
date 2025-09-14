@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'monitors.dart';
 import 'ward.dart';
+import 'data_entry_page.dart';
 import '../auth/sessionManager.dart';
 
 final supabase = Supabase.instance.client;
@@ -583,6 +584,20 @@ class _AdminHomePageState extends State<AdminHomePage> {
           _buildWardsPage(),
           _buildMonitorsPage(),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => DataEntryPage(user: widget.user),
+            ),
+          );
+        },
+        backgroundColor: theme.colorScheme.primary,
+        foregroundColor: Colors.white,
+        icon: Icon(Icons.add),
+        label: Text('Add Data'),
+        tooltip: 'Add candidate or polling station data',
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
